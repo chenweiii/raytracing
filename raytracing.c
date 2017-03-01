@@ -461,7 +461,7 @@ static void *rayThread(void *ritem_array)
     point3 d;
     color object_color = { 0.0, 0.0, 0.0 };
 
-    for (int j = rayInfo->from_height; j < rayInfo->to_height; j++) {
+    for (int j = rayInfo->from_height; j < rayInfo->height; j += NUM_THREADS) {
         for (int i = 0; i < rayInfo->width; i++) {
             double r = 0, g = 0, b = 0;
             /* MSAA */
@@ -524,8 +524,7 @@ void raytracing(uint8_t *pixels, color background_color,
         ritem_array[j].factor = factor;
         ritem_array[j].width = width;
         ritem_array[j].height = height;
-        ritem_array[j].from_height = j * (height / NUM_THREADS);
-        ritem_array[j].to_height = (j + 1) * (height / NUM_THREADS);
+        ritem_array[j].from_height = j;
         pthread_create(&threads[j], NULL, rayThread, (void *) &ritem_array[j]);
     }
     for (int j = 0; j < NUM_THREADS; j++) {

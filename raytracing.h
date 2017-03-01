@@ -13,7 +13,7 @@ typedef struct __RAYTRACING_ITEM {
     light_node lights;
     const viewpoint *view;
     int factor;
-    int from_height, to_height;
+    int from_height;
     int height;
     int width;
 } ritem;
