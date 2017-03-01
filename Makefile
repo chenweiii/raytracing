@@ -10,7 +10,7 @@ $(GIT_HOOKS):
 
 CC ?= gcc
 CFLAGS = \
-	-std=gnu99 -Wall -O0 -g
+	-std=gnu99 -Wall -O0 -g -pthread
 LDFLAGS = \
 	-lm
 
@@ -30,7 +30,7 @@ OBJS := \
 
 
 $(EXEC): $(OBJS)
-	$(CC) -o $@ $^ $(LDFLAGS)
+	$(CC) -pthread -o $@ $^ $(LDFLAGS)
 
 main.o: use-models.h
 use-models.h: models.inc Makefile

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <pthread.h>
 
 #include "math-toolkit.h"
 #include "primitives.h"
@@ -10,6 +11,7 @@
 #define MAX_DISTANCE 1000000000000.0
 #define MIN_DISTANCE 0.00001
 #define SAMPLES 4
+#define NUM_THREADS 4
 
 #define SQUARE(x) (x * x)
 #define MAX(a, b) (a > b ? a : b)
@@ -452,47 +454,81 @@ static unsigned int ray_color(const point3 e, double t,
     return 1;
 }
 
+static void *rayThread(void *ritem_array)
+{
+    ritem *rayInfo = (ritem *) ritem_array;
+    idx_stack stk;
+    point3 d;
+    color object_color = { 0.0, 0.0, 0.0 };
+
+    for (int j = rayInfo->from_height; j < rayInfo->to_height; j++) {
+        for (int i = 0; i < rayInfo->width; i++) {
+            double r = 0, g = 0, b = 0;
+            /* MSAA */
+            for (int s = 0; s < SAMPLES; s++) {
+                idx_stack_init(&stk);
+                rayConstruction(d, rayInfo->u,
+                                rayInfo->v, rayInfo->w,
+                                i * rayInfo->factor + s / rayInfo->factor,
+                                j * rayInfo->factor + s % rayInfo->factor,
+                                rayInfo->view,
+                                rayInfo->width * rayInfo->factor,
+                                rayInfo->height * rayInfo->factor);
+                if (ray_color(rayInfo->view->vrp, 0.0, d, &stk,
+                              rayInfo->rectangulars,
+                              rayInfo->spheres, rayInfo->lights,
+                              object_color, MAX_REFLECTION_BOUNCES)) {
+                    r += object_color[0];
+                    g += object_color[1];
+                    b += object_color[2];
+                } else {
+                    r += rayInfo->background_color[0];
+                    g += rayInfo->background_color[1];
+                    b += rayInfo->background_color[2];
+                }
+            }
+            rayInfo->pixels[((i + (j * rayInfo->width)) * 3) + 0] = r * 255 / SAMPLES;
+            rayInfo->pixels[((i + (j * rayInfo->width)) * 3) + 1] = g * 255 / SAMPLES;
+            rayInfo->pixels[((i + (j * rayInfo->width)) * 3) + 2] = b * 255 / SAMPLES;
+        }
+    }
+    pthread_exit(NULL);
+}
+
 /* @param background_color this is not ambient light */
 void raytracing(uint8_t *pixels, color background_color,
                 rectangular_node rectangulars, sphere_node spheres,
                 light_node lights, const viewpoint *view,
                 int width, int height)
 {
-    point3 u, v, w, d;
-    color object_color = { 0.0, 0.0, 0.0 };
+    point3 u, v, w;
 
     /* calculate u, v, w */
     calculateBasisVectors(u, v, w, view);
 
-    idx_stack stk;
-
     int factor = sqrt(SAMPLES);
-    for (int j = 0; j < height; j++) {
-        for (int i = 0; i < width; i++) {
-            double r = 0, g = 0, b = 0;
-            /* MSAA */
-            for (int s = 0; s < SAMPLES; s++) {
-                idx_stack_init(&stk);
-                rayConstruction(d, u, v, w,
-                                i * factor + s / factor,
-                                j * factor + s % factor,
-                                view,
-                                width * factor, height * factor);
-                if (ray_color(view->vrp, 0.0, d, &stk, rectangulars, spheres,
-                              lights, object_color,
-                              MAX_REFLECTION_BOUNCES)) {
-                    r += object_color[0];
-                    g += object_color[1];
-                    b += object_color[2];
-                } else {
-                    r += background_color[0];
-                    g += background_color[1];
-                    b += background_color[2];
-                }
-                pixels[((i + (j * width)) * 3) + 0] = r * 255 / SAMPLES;
-                pixels[((i + (j * width)) * 3) + 1] = g * 255 / SAMPLES;
-                pixels[((i + (j * width)) * 3) + 2] = b * 255 / SAMPLES;
-            }
-        }
+    ritem *ritem_array = (ritem *) malloc(sizeof(ritem) * (height / NUM_THREADS));
+    pthread_t threads[NUM_THREADS];
+
+    /*  preparing the data structure for thread */
+    for (int j = 0; j < NUM_THREADS; j++) {
+        ritem_array[j].u = u;
+        ritem_array[j].v = v;
+        ritem_array[j].w = w;
+        ritem_array[j].pixels = pixels;
+        ritem_array[j].background_color = background_color;
+        ritem_array[j].rectangulars = rectangulars;
+        ritem_array[j].spheres = spheres;
+        ritem_array[j].lights = lights;
+        ritem_array[j].view = view;
+        ritem_array[j].factor = factor;
+        ritem_array[j].width = width;
+        ritem_array[j].height = height;
+        ritem_array[j].from_height = j * (height / NUM_THREADS);
+        ritem_array[j].to_height = (j + 1) * (height / NUM_THREADS);
+        pthread_create(&threads[j], NULL, rayThread, (void *) &ritem_array[j]);
+    }
+    for (int j = 0; j < NUM_THREADS; j++) {
+        pthread_join(threads[j], NULL);
     }
 }
