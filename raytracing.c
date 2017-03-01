@@ -11,7 +11,7 @@
 #define MAX_DISTANCE 1000000000000.0
 #define MIN_DISTANCE 0.00001
 #define SAMPLES 4
-#define NUM_THREADS 4
+#define NUM_THREADS 8
 
 #define SQUARE(x) (x * x)
 #define MAX(a, b) (a > b ? a : b)
@@ -454,14 +454,20 @@ static unsigned int ray_color(const point3 e, double t,
     return 1;
 }
 
-static void *rayThread(void *ritem_array)
+static void *rayThread(void *ray_item)
 {
-    ritem *rayInfo = (ritem *) ritem_array;
+    ritem *rayInfo = (ritem *) ray_item;
     idx_stack stk;
     point3 d;
+    int j = 0;
     color object_color = { 0.0, 0.0, 0.0 };
 
-    for (int j = rayInfo->from_height; j < rayInfo->to_height; j++) {
+    while (j < rayInfo->height) {
+        pthread_mutex_lock(rayInfo->_MUTEX);
+        j = ++(*rayInfo->__CURRENT_HEIGHT);
+        pthread_mutex_unlock(rayInfo->_MUTEX);
+        if (j >= rayInfo->height) break;
+
         for (int i = 0; i < rayInfo->width; i++) {
             double r = 0, g = 0, b = 0;
             /* MSAA */
@@ -507,28 +513,32 @@ void raytracing(uint8_t *pixels, color background_color,
     calculateBasisVectors(u, v, w, view);
 
     int factor = sqrt(SAMPLES);
-    ritem *ritem_array = (ritem *) malloc(sizeof(ritem) * (height / NUM_THREADS));
+    ritem ray_item;
     pthread_t threads[NUM_THREADS];
+    pthread_mutex_t mutex;
+    pthread_mutex_init(&mutex, NULL);
+    int current_height = -1;
 
     /*  preparing the data structure for thread */
-    for (int j = 0; j < NUM_THREADS; j++) {
-        ritem_array[j].u = u;
-        ritem_array[j].v = v;
-        ritem_array[j].w = w;
-        ritem_array[j].pixels = pixels;
-        ritem_array[j].background_color = background_color;
-        ritem_array[j].rectangulars = rectangulars;
-        ritem_array[j].spheres = spheres;
-        ritem_array[j].lights = lights;
-        ritem_array[j].view = view;
-        ritem_array[j].factor = factor;
-        ritem_array[j].width = width;
-        ritem_array[j].height = height;
-        ritem_array[j].from_height = j * (height / NUM_THREADS);
-        ritem_array[j].to_height = (j + 1) * (height / NUM_THREADS);
-        pthread_create(&threads[j], NULL, rayThread, (void *) &ritem_array[j]);
-    }
-    for (int j = 0; j < NUM_THREADS; j++) {
+    ray_item.u = u;
+    ray_item.v = v;
+    ray_item.w = w;
+    ray_item.pixels = pixels;
+    ray_item.background_color = background_color;
+    ray_item.rectangulars = rectangulars;
+    ray_item.spheres = spheres;
+    ray_item.lights = lights;
+    ray_item.view = view;
+    ray_item.factor = factor;
+    ray_item.width = width;
+    ray_item.height = height;
+    ray_item.__CURRENT_HEIGHT = &current_height;
+    ray_item._MUTEX = &mutex;
+
+    for (int j = 0; j < NUM_THREADS; j++)
+        pthread_create(&threads[j], NULL, rayThread, (void *) &ray_item);
+    for (int j = 0; j < NUM_THREADS; j++)
         pthread_join(threads[j], NULL);
-    }
+
+    pthread_mutex_destroy(&mutex);
 }

@@ -13,9 +13,10 @@ typedef struct __RAYTRACING_ITEM {
     light_node lights;
     const viewpoint *view;
     int factor;
-    int from_height, to_height;
     int height;
     int width;
+    int *__CURRENT_HEIGHT;
+    pthread_mutex_t *_MUTEX;
 } ritem;
 
 void raytracing(uint8_t *pixels, color background_color,
